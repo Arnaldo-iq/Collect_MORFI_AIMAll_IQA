@@ -1,0 +1,166 @@
+#!/bin/bash
+# 
+# Grab the uncorrected energies from the output of MORFI "test.mout" or the other IQA terms from AIMAll
+#
+echo "How many atom does the target molcule has"
+#
+read natom
+#
+let total="(natom*(natom+1))/2"
+#
+let int="total-natom"
+
+echo $natom > numer 
+#
+echo "Are you running correlaion [MORFI] or other IQA terms [AIMALL]?"
+#
+read code
+#
+# In the case of a MORFI run
+#
+if [ $code == "MORFI" ]; then
+#
+echo "Please enter the version of  MORFI that you are running [AA] or [AB]"
+#
+# There are two versions of MORFI AA and AB, different output syntaxes
+#
+read version
+#
+if [ $version == "AB" ]; then
+#
+# In the case of teh AB code
+#
+grep "Correlation=" test.mout|sed -e 's/ Correlation= //' > correlation
+#
+# Grab the atomic numeric labels from he output of MORFI "test.mout"(sed 's/[A-Za-z]*//g') bit gets rid of all the letters
+#
+grep "interaction" test.mout|sed -e 's/ interaction            //'| sed 's/[A-Za-z]*//g' > labels
+#
+# Gets rid of that annoying first line that contains the total number of interactions 
+#
+sed -i '1d' labels
+#
+./corr
+#
+ else
+# 
+# In the case of teh AB code. 
+#
+# Grabs the correlation energy from "test.mout". Last part of that command (sed '/^\s*$/d') removes blank and empty lines
+#
+grep -A 1 "The interaction energy of" test.mout|sed -e 's/ The interaction energy of.*//'|sed '/^\s*$/d' > correlation
+fi
+#
+# Grab the MP2, MP3 and MP4 energies (respectively) from the output of GAUSSIAN09 "gen.log"
+#
+grep "E2 =" gen.log|sed -e 's/E2 =//'|sed -e 's/EUMP2 =.*//'|sed -e 's/D/E/' > gauss
+grep "E3=" gen.log|sed -e 's/E3=//'|sed -e 's/EUMP3=.*//'|sed -e 's/D/E/' >> gauss
+grep "E4(SDQ)=" gen.log|sed -e 's/E4(SDQ)=//'|sed -e 's/UMP4(SDQ)=.*//'|sed -e 's/D/E/' >> gauss
+#
+# Change the format of gauss from column, to a single line 
+#
+cat gauss|tr -s "\n" " "  >> g09
+#
+rm gauss
+#
+# Now you can runs a.out, as you have  the necessary input files "g09" and  "labels" in the correct format
+#
+ else
+#
+# You are running AIMAll boy 
+#
+grep "TOTAL ENERGY" *.wfn|sed -e 's/ TOTAL ENERGY =   //'|sed -e 's/THE VIRIAL(-.*//' > wfn
+#
+cp  IQA.out *atomicfiles
+#
+cp numer *atomicfiles
+#
+cp wfn *atomicfiles
+#
+cd *atomicfiles
+#
+mkdir interactions
+#
+rm *.inp
+#
+ls  ??*[_]* > lable_AB
+#
+let i=0
+while IFS=$'\n' read -r line_data; do
+    lab1[i]="${line_data}"
+    ((++i))
+done < lable_AB
+
+i=0
+      while [ $i -lt $int ]; do
+#
+      mv ${lab1[i]} interactions
+#
+      let i=( $i + 1 );
+#
+      done
+#
+cd  interactions
+#
+i=0
+      while [ $i -lt $int ]; do
+#
+ grep "Vne(A,B)/2" ${lab1[i]}|cut -c24-40 >> ${lab1[i]}_sum
+ grep "Ven(A,B)/2" ${lab1[i]}|cut -c24-40 >> ${lab1[i]}_sum
+ grep " Vnn(A,B)/2" ${lab1[i]}|cut -c24-40 >> ${lab1[i]}_sum
+ grep " VeeC(A,B)/2" ${lab1[i]}|cut -c24-40 >> ${lab1[i]}_sum
+ grep "VeeX(A,B)/2" ${lab1[i]}|cut -c24-40 >> ${lab1[i]}_sum
+#
+ cat ${lab1[i]}_sum|tr -s "\n" " "  >> AB_${lab1[i]}
+#
+	let i=( $i + 1 );
+#
+	done
+#
+head AB*|sed -e 's/==>.*//'|sed '/^\s*$/d' > AB
+#
+mv AB ..
+#
+cd .. 
+#
+ls *.int > lable_AA
+#
+let i=0
+while IFS=$'\n' read -r line_data; do
+    lab2[i]="${line_data}"
+    ((++i))
+done < lable_AA
+#
+ i=0
+      while [ $i -lt $natom ]; do
+# 
+ grep -m 1 "T(A)" ${lab2[i]}|sed -e 's/ T(A)                =  //' >> ${lab2[i]}_sum
+ grep  "Vneen(A,A)/2 = Vne(A,A)" ${lab2[i]}|sed -e 's/Vneen(A,A).*.=//' >> ${lab2[i]}_sum
+ grep -m 1 "VeeC(A,A)" ${lab2[i]}|sed -e 's/ VeeC(A,A)           = //' >> ${lab2[i]}_sum
+ grep -m 1 "VeeX(A,A)" ${lab2[i]}|sed -e 's/ VeeX(A,A)           =//' >> ${lab2[i]}_sum
+#
+ cat ${lab2[i]}_sum|tr -s "\n" " "  >> AA_${lab2[i]}
+#
+        let i=( $i + 1 );
+#
+        done
+#
+head AA*|sed -e 's/==>.*//'|sed '/^\s*$/d' > AA
+#
+		./IQA.out
+#
+cd  interactions 
+#
+mv *.int ..
+#
+cd ..
+#
+rm -rf interactions AA* AB* IQA.out numer wfn *_sum lable*
+#
+mv out ..
+#
+cd ..
+#
+rm numer wfn
+#
+fi
